@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
 	"log"
 	"strconv"
 )
@@ -70,30 +71,72 @@ func sharoword(x uint16) uint16 {
 }
 
 type X97Packet struct {
-	id     uint8
-	addr   uint8
-	cmd    uint8
-	length uint8
-	crc    uint8
-	data   [127]byte
+	data [5 + 127]byte
 }
 
 func NewX97Packet(command int) *X97Packet {
-	return &X97Packet{id: 0x95, addr: 3, cmd: uint8(command), length: 5}
+	var pack X97Packet
+	pack.SetId(0x95)
+	pack.SetAddr(3)
+	pack.SetCommand(uint8(command))
+	pack.SetLength(5)
+	return &pack
 }
 
 func (x *X97Packet) CountArguments() int {
-	if 0 < x.length-5 {
-		return (int(x.length) - 7) / 2
+	if 0 < x.Length()-5 {
+		return (int(x.Length()) - 7) / 2
 	} else {
 		return 0
 	}
 }
 
-func (x *X97Packet) ReadHeader(data []byte) {
-	buf := bytes.NewBuffer(data[:5])
+func (x *X97Packet) Header() []byte {
+	return x.data[:5]
+}
 
-	binary.Read(buf, binary.LittleEndian, x)
+func (x *X97Packet) Data() []byte {
+	return x.data[5 : x.Length()-2]
+}
+
+func (x *X97Packet) SetId(id uint8) {
+	x.data[0] = id
+}
+
+func (x *X97Packet) Id() uint8 {
+	return x.data[0]
+}
+
+func (x *X97Packet) SetAddr(addr uint8) {
+	x.data[1] = addr
+}
+
+func (x *X97Packet) Addr() uint8 {
+	return x.data[1]
+}
+
+func (x *X97Packet) SetCommand(cmd uint8) {
+	x.data[2] = cmd
+}
+
+func (x *X97Packet) Command() uint8 {
+	return x.data[2]
+}
+
+func (x *X97Packet) SetLength(length uint8) {
+	x.data[3] = length
+}
+
+func (x *X97Packet) Length() uint8 {
+	return x.data[3]
+}
+
+func (x *X97Packet) SetHeaderCRC(crc uint8) {
+	x.data[4] = crc
+}
+
+func (x *X97Packet) HeaderCRC() uint8 {
+	return x.data[4]
 }
 
 func (x *X97Packet) AppendArguments(arguments []string) {
@@ -106,39 +149,50 @@ func (x *X97Packet) AppendArguments(arguments []string) {
 		binary.Write(buf, binary.LittleEndian, sharoword(uint16(arg)))
 	}
 
-	sz, _ := buf.Read(x.data[:])
+	sz, _ := buf.Read(x.data[5:])
 	if 0 < sz {
 		sz += 2
 	}
 	sz += 5
-	x.length = uint8(sz)
+	x.SetLength(uint8(sz))
 }
 
 func (x *X97Packet) CRC() uint16 {
-	return uint16(x.data[x.length-7]) | uint16(x.data[x.length-6])<<8
+	return uint16(x.data[x.Length()-2]) | uint16(x.data[x.Length()-1])<<8
+}
+
+func (x *X97Packet) SetCRC(crc uint16) {
+	x.data[x.Length()-2] = uint8(crc >> 0)
+	x.data[x.Length()-1] = uint8(crc >> 8)
 }
 
 func (x *X97Packet) ComputeCRC() {
-	buf := new(bytes.Buffer)
+	x.SetHeaderCRC(crc_header(x.data[:4]))
 
-	// Header CRC
-	binary.Write(buf, binary.LittleEndian, x)
-	x.crc = crc_header(buf.Bytes()[:4])
-
-	// Full CRC
-	if 5 < x.length {
-		buf.Bytes()[:5][4] = x.crc
-		crc := crc_pack(buf.Bytes()[:x.length-2])
-		buf.Reset()
-		binary.Write(buf, binary.LittleEndian, sharoword(crc))
-		buf.Read(x.data[x.length-7:])
+	if 5 < x.Length() {
+		x.SetCRC(sharoword(crc_pack(x.data[:x.Length()-2])))
 	}
 }
 
-func (x *X97Packet) Serialize(data []byte) []byte {
-	buf := bytes.NewBuffer(data)
-	binary.Write(buf, binary.LittleEndian, x)
-	return buf.Bytes()[:x.length]
+func (x *X97Packet) Serialize(out io.Writer) []byte {
+	l, err := out.Write(x.data[:x.Length()])
+	if err != nil {
+		log.Fatal("failed to write: ", err)
+	}
+	return x.data[:l]
+}
+
+func (x *X97Packet) DeSerialize(in io.Reader) []byte {
+	if sz, err := in.Read(x.data[:5]); err == nil && sz == 5 {
+		in.Read(x.data[:x.Length()-5])
+	} else {
+		x.SetLength(5)
+		log.Fatal(err)
+	}
+
+	// TODO: verify CRC
+
+	return x.data[:x.Length()]
 }
 
 func PreparePacket(cmd int, args []string) *X97Packet {
