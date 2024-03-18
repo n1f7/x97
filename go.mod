@@ -1,6 +1,6 @@
 module x97
 
-go 1.17.0
+go 1.17
 
 require go.bug.st/serial v1.6.2
 
