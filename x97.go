@@ -56,10 +56,19 @@ func crc16(data []byte) uint16 {
 	return reg_crc
 }
 
+//static uint8_t crc_header (uint8_t *data, int len)
+//{
+//  int sum = 0;
+//  for (int i=0; i<len; i++) {
+//	  sum += data[i];
+//  }
+//  return (uint8_t)(((sum >> 7) + sum) & 0x7f);
+//}
+
 func crc_header(data []byte) uint8 {
-	var sum int
+	var sum uint
 	for i := 0; i < len(data); i++ {
-		sum += int(data[i])
+		sum += uint(data[i])
 	}
 	return uint8((sum>>7)+sum) & 0x7f
 }
@@ -82,13 +91,40 @@ func readArgs(packPtr *X97Packet, str []string, buf *bytes.Buffer) int {
 		}
 		binary.Write(buf, binary.LittleEndian, sharoword(uint16(arg)))
 	}
+
 	l, _ := buf.Read(packPtr.data[:])
 	packPtr.length = 5 + uint8(l)
+
 	if 0 < l {
 		packPtr.length += 2
 	}
 
 	return l
+}
+
+func PreparePacket(cmd int, args []string) []byte {
+	var buf bytes.Buffer
+
+	// Bare init header
+	pack := X97Packet{id: 0x95, addr: 3, cmd: uint8(cmd)}
+
+	// Read arguments from cmd line
+	dataSz := readArgs(&pack, args, &buf)
+
+	// Header CRC
+	binary.Write(&buf, binary.LittleEndian, pack)
+	pack.crc = crc_header(buf.Bytes()[:4])
+	buf.Reset()
+
+	// Full CRC
+	binary.Write(&buf, binary.LittleEndian, pack)
+	crc := crc_pack(buf.Bytes()[:pack.length-2])
+	buf.Reset()
+	binary.Write(&buf, binary.LittleEndian, sharoword(crc))
+	buf.Read(pack.data[dataSz:])
+
+	binary.Write(&buf, binary.LittleEndian, pack)
+	return buf.Bytes()[:pack.length]
 }
 
 type X97Packet struct {
@@ -126,33 +162,23 @@ func main() {
 			log.Fatal("Failure to open port: ", err)
 		}
 
-		var buf bytes.Buffer
+		buf := PreparePacket(cmd, os.Args[3:])
 
-		// Bare init header
-		pack := X97Packet{id: 0x97, addr: 3, cmd: uint8(cmd)}
-
-		// Read arguments from cmd line
-		dataSz := readArgs(&pack, os.Args[3:], &buf)
-
-		// Header CRC
-		binary.Write(&buf, binary.LittleEndian, pack)
-		pack.crc = crc_header(buf.Bytes()[:4])
-		buf.Reset()
-
-		// Full CRC
-		binary.Write(&buf, binary.LittleEndian, pack)
-		crc := crc_pack(buf.Bytes()[:pack.length-2])
-		buf.Reset()
-		binary.Write(&buf, binary.LittleEndian, sharoword(crc))
-		buf.Read(pack.data[dataSz:])
-
-		binary.Write(&buf, binary.LittleEndian, pack)
-		n, err := port.Write(buf.Bytes()[:pack.length])
+		_, err = port.Write(buf)
 		if err != nil {
 			log.Fatal(err)
 		}
+
 		fmt.Printf("Port: %s, Command: %d\n", addr, cmd)
-		fmt.Printf("sent %d bytes %v\n", n, buf.Bytes()[:pack.length])
+		fmt.Printf("Sent %d bytes\nhdr: ", len(buf))
+		for _, b := range buf[:5] {
+			fmt.Printf("%02X ", b)
+		}
+		fmt.Printf("\ndat: ")
+		for _, b := range buf[5:] {
+			fmt.Printf("%02X ", b)
+		}
+
 	} else {
 		panic("x97 <PORT> <CMD> <ARG1> <ARG2> ... ")
 	}
