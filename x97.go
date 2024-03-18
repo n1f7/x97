@@ -3,12 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"log"
-	"os"
 	"strconv"
-
-	"go.bug.st/serial"
 )
 
 var CRC16Table = [...]uint16{
@@ -56,15 +52,6 @@ func crc16(data []byte) uint16 {
 	return reg_crc
 }
 
-//static uint8_t crc_header (uint8_t *data, int len)
-//{
-//  int sum = 0;
-//  for (int i=0; i<len; i++) {
-//	  sum += data[i];
-//  }
-//  return (uint8_t)(((sum >> 7) + sum) & 0x7f);
-//}
-
 func crc_header(data []byte) uint8 {
 	var sum uint
 	for i := 0; i < len(data); i++ {
@@ -82,51 +69,6 @@ func sharoword(x uint16) uint16 {
 	return ((x & 0x3F80) << 1) | (x & 0x7F)
 }
 
-// Returns num of bytes written to buf
-func readArgs(packPtr *X97Packet, str []string, buf *bytes.Buffer) int {
-	for _, s := range str {
-		arg, err := strconv.ParseInt(s, 16, 16)
-		if err != nil {
-			log.Fatal("Fail to parse command arguments ", err)
-		}
-		binary.Write(buf, binary.LittleEndian, sharoword(uint16(arg)))
-	}
-
-	l, _ := buf.Read(packPtr.data[:])
-	packPtr.length = 5 + uint8(l)
-
-	if 0 < l {
-		packPtr.length += 2
-	}
-
-	return l
-}
-
-func PreparePacket(cmd int, args []string) []byte {
-	var buf bytes.Buffer
-
-	// Bare init header
-	pack := X97Packet{id: 0x95, addr: 3, cmd: uint8(cmd)}
-
-	// Read arguments from cmd line
-	dataSz := readArgs(&pack, args, &buf)
-
-	// Header CRC
-	binary.Write(&buf, binary.LittleEndian, pack)
-	pack.crc = crc_header(buf.Bytes()[:4])
-	buf.Reset()
-
-	// Full CRC
-	binary.Write(&buf, binary.LittleEndian, pack)
-	crc := crc_pack(buf.Bytes()[:pack.length-2])
-	buf.Reset()
-	binary.Write(&buf, binary.LittleEndian, sharoword(crc))
-	buf.Read(pack.data[dataSz:])
-
-	binary.Write(&buf, binary.LittleEndian, pack)
-	return buf.Bytes()[:pack.length]
-}
-
 type X97Packet struct {
 	id     uint8
 	addr   uint8
@@ -136,50 +78,72 @@ type X97Packet struct {
 	data   [127]byte
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		ports, err := serial.GetPortsList()
-		if err != nil {
-			log.Fatal(err)
-		}
+func NewX97Packet(command int) *X97Packet {
+	return &X97Packet{id: 0x95, addr: 3, cmd: uint8(command), length: 5}
+}
 
-		if len(ports) == 0 {
-			log.Fatal("No serial ports")
-		}
-
-		for _, port := range ports {
-			fmt.Printf("Found: %v\n", port)
-		}
-
-	} else if 2 < len(os.Args) {
-		mode := &serial.Mode{BaudRate: 115200, Parity: serial.OddParity, DataBits: 7, StopBits: serial.OneStopBit}
-
-		addr := os.Args[1]
-		cmd, _ := strconv.Atoi(os.Args[2])
-
-		port, err := serial.Open(addr, mode)
-		if err != nil {
-			log.Fatal("Failure to open port: ", err)
-		}
-
-		buf := PreparePacket(cmd, os.Args[3:])
-
-		_, err = port.Write(buf)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Printf("Port: %s, Command: %d\n", addr, cmd)
-		fmt.Printf("Sent %d bytes\nhdr: ", len(buf))
-		for _, b := range buf[:5] {
-			fmt.Printf("%02X ", b)
-		}
-		fmt.Printf("\ndat: ")
-		for _, b := range buf[5:] {
-			fmt.Printf("%02X ", b)
-		}
-
+func (x *X97Packet) CountArguments() int {
+	if 0 < x.length-5 {
+		return (int(x.length) - 7) / 2
 	} else {
-		panic("x97 <PORT> <CMD> <ARG1> <ARG2> ... ")
+		return 0
 	}
+}
+
+func (x *X97Packet) ReadHeader(data []byte) {
+	buf := bytes.NewBuffer(data[:5])
+
+	binary.Read(buf, binary.LittleEndian, x)
+}
+
+func (x *X97Packet) AppendArguments(arguments []string) {
+	buf := new(bytes.Buffer)
+	for _, s := range arguments {
+		arg, err := strconv.ParseInt(s, 16, 16)
+		if err != nil {
+			log.Fatal("Fail to parse command arguments ", err)
+		}
+		binary.Write(buf, binary.LittleEndian, sharoword(uint16(arg)))
+	}
+
+	sz, _ := buf.Read(x.data[:])
+	if 0 < sz {
+		sz += 2
+	}
+	sz += 5
+	x.length = uint8(sz)
+}
+
+func (x *X97Packet) CRC() uint16 {
+	return uint16(x.data[x.length-7]) | uint16(x.data[x.length-6])<<8
+}
+
+func (x *X97Packet) ComputeCRC() {
+	buf := new(bytes.Buffer)
+
+	// Header CRC
+	binary.Write(buf, binary.LittleEndian, x)
+	x.crc = crc_header(buf.Bytes()[:4])
+
+	// Full CRC
+	if 5 < x.length {
+		buf.Bytes()[:5][4] = x.crc
+		crc := crc_pack(buf.Bytes()[:x.length-2])
+		buf.Reset()
+		binary.Write(buf, binary.LittleEndian, sharoword(crc))
+		buf.Read(x.data[x.length-7:])
+	}
+}
+
+func (x *X97Packet) Serialize(data []byte) []byte {
+	buf := bytes.NewBuffer(data)
+	binary.Write(buf, binary.LittleEndian, x)
+	return buf.Bytes()[:x.length]
+}
+
+func PreparePacket(cmd int, args []string) *X97Packet {
+	pack := NewX97Packet(cmd)
+	pack.AppendArguments(args)
+	pack.ComputeCRC()
+	return pack
 }
