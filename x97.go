@@ -143,7 +143,7 @@ func main() {
 		binary.Write(&buf, binary.LittleEndian, pack)
 		crc := crc_pack(buf.Bytes()[:pack.length-2])
 		buf.Reset()
-		binary.Write(&buf, binary.LittleEndian, crc)
+		binary.Write(&buf, binary.LittleEndian, sharoword(crc))
 		buf.Read(pack.data[dataSz:])
 
 		binary.Write(&buf, binary.LittleEndian, pack)
