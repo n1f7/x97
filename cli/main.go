@@ -23,21 +23,22 @@ func setupCOM() serial.Port {
 	return port
 }
 
-func writeRequest(p serial.Port, cmd int) *x97.Packet {
+func writeRequest(p serial.Port, cmd int) {
 	pack := x97.PreparePacket(cmd, os.Args[3:])
 	buf := pack.Serialize(p)
 
 	fmt.Printf("Port: %s, Command: %d\n", os.Args[1], cmd)
 	fmt.Printf("Sent %d bytes\n", len(buf))
-
-	return pack
+	pack.Print(os.Stdout)
 }
 
-func readResponse(p serial.Port) *x97.Packet {
+func readResponse(p serial.Port) {
 	pack := x97.NewPacket(0)
-	pack.DeSerialize(p)
+	buf := pack.DeSerialize(p)
 
-	return pack
+	fmt.Printf("Received %d byte response:\n", len(buf))
+	pack.Print(os.Stdout)
+
 }
 
 func main() {
@@ -57,8 +58,7 @@ func main() {
 	} else if 2 < len(os.Args) {
 		port := setupCOM()
 		cmd, _ := strconv.Atoi(os.Args[2])
-		pack := writeRequest(port, cmd)
-		pack.Print(os.Stdout)
+		writeRequest(port, cmd)
 
 		switch cmd {
 		case x97.GetRegs:
@@ -72,8 +72,7 @@ func main() {
 		case x97.Read:
 			fallthrough
 		case x97.WriteRpl:
-			pack = readResponse(port)
-			pack.Print(os.Stdout)
+			readResponse(port)
 		}
 	} else {
 		fmt.Fprintln(os.Stderr, "Usage:\nx97 <PORT> <CMD> <ARG1> <ARG2> ... ")

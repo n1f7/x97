@@ -218,8 +218,7 @@ func (x *Packet) isValid() bool {
 }
 
 func (x *Packet) DeSerialize(in io.Reader) []byte {
-	limit := -1
-	for sz, received := 0, 0; ; received += sz {
+	for limit, sz, received := -1, 0, 0; ; {
 		var err error = nil
 
 		if 0 < limit {
@@ -228,8 +227,9 @@ func (x *Packet) DeSerialize(in io.Reader) []byte {
 			sz, err = in.Read(x.data[received:])
 		}
 
+		received += sz
+
 		if sz == 0 {
-			fmt.Println("EOT")
 			break
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "Failure to rcv: ", err)
