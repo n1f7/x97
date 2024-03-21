@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"strconv"
 )
 
@@ -90,10 +91,12 @@ type Packet struct {
 
 func NewPacket(command int) *Packet {
 	var pack Packet
-	pack.SetId(0x95)
-	pack.SetAddr(3)
-	pack.SetCommand(uint8(command))
-	pack.SetLength(5)
+	if 0 < command {
+		pack.SetId(0x95)
+		pack.SetAddr(3)
+		pack.SetCommand(uint8(command))
+		pack.SetLength(5)
+	}
 	return &pack
 }
 
@@ -209,15 +212,32 @@ func (x *Packet) Serialize(out io.Writer) []byte {
 	return x.data[:l]
 }
 
-func (x *Packet) DeSerialize(in io.Reader) []byte {
-	if sz, err := in.Read(x.data[:5]); err == nil && sz == 5 {
-		in.Read(x.data[:x.Length()-5])
-	} else {
-		x.SetLength(5)
-		log.Fatal(err)
-	}
-
+func (x *Packet) isValid() bool {
 	// TODO: verify CRC
+	return x.Id() == 0x95 && 0 < x.Length()
+}
+
+func (x *Packet) DeSerialize(in io.Reader) []byte {
+	limit := -1
+	for sz, received := 0, 0; ; received += sz {
+		var err error = nil
+
+		if 0 < limit {
+			sz, err = in.Read(x.data[received:limit])
+		} else {
+			sz, err = in.Read(x.data[received:])
+		}
+
+		if sz == 0 {
+			fmt.Println("EOT")
+			break
+		} else if err != nil {
+			fmt.Fprintf(os.Stderr, "Failure to rcv: ", err)
+			break
+		} else if limit < 0 && 4 < received && x.isValid() { // Reading body
+			limit = int(x.Length())
+		}
+	}
 
 	return x.data[:x.Length()]
 }

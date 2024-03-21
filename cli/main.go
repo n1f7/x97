@@ -11,7 +11,7 @@ import (
 )
 
 func setupCOM() serial.Port {
-	mode := &serial.Mode{BaudRate: 115200, Parity: serial.OddParity, DataBits: 7, StopBits: serial.OneStopBit}
+	mode := &serial.Mode{BaudRate: 115200, Parity: serial.OddParity, DataBits: 8, StopBits: serial.OneStopBit}
 
 	port, err := serial.Open(os.Args[1], mode)
 	if err == nil {
