@@ -1,0 +1,31 @@
+Language : Cpp
+AlignOperands : true
+AccessModifierOffset : -4
+AlignTrailingComments : true
+AlignConsecutiveMacros : true
+AlignConsecutiveBitFields : true
+AlignConsecutiveAssignments : true
+AllowShortIfStatementsOnASingleLine : false
+AlwaysBreakTemplateDeclarations : true
+AllowShortFunctionsOnASingleLine : Empty
+AllowShortCaseLabelsOnASingleLine : false
+AllowShortLoopsOnASingleLine : true
+AllowAllParametersOfDeclarationOnNextLine : true
+BinPackParameters : true
+ColumnLimit : 120
+Cpp11BracedListStyle : true
+ConstructorInitializerAllOnOneLineOrOnePerLine : true
+IndentWidth : 4
+IndentPPDirectives: AfterHash
+IndentCaseLabels: true
+TabWidth : 4
+UseTab : Never
+Standard : c++20
+NamespaceIndentation : All
+DerivePointerAlignment : false
+PointerAlignment : Right
+SpaceBeforeParens : ControlStatements
+SpaceInEmptyParentheses : false
+SpaceBeforeAssignmentOperators : true
+AlignAfterOpenBracket : Align
+SortIncludes : false
