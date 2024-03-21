@@ -1,5 +1,6 @@
 #pragma once
 
+#include <utility>
 #include <cassert>
 #include <cstdint>
 #include <cstddef>
@@ -8,6 +9,24 @@
 #include <type_traits>
 
 namespace X97 {
+    namespace _Impl {
+        template <std::size_t I>
+        inline constexpr auto shift = 1;
+
+        template <>
+        inline constexpr auto shift<0> = 0;
+
+        template <class T, std::size_t... N>
+        T to7Bit(const T &x, std::index_sequence<N...>) {
+            return ((((0x7f << (7 * N)) & x) << shift<N>) | ...);
+        }
+    } // namespace _Impl
+
+    template <class T>
+    T to7Bit(const T &x) {
+        return _Impl::to7Bit(x, std::make_index_sequence<sizeof(T)>{});
+    }
+
     class Packet {
     public:
         enum class Command : std::uint8_t {
@@ -26,26 +45,32 @@ namespace X97 {
         Packet() = default;
 
         explicit Packet(Command cmd)
-            : _Header{.magic   = 0x95,
-                      .address = std::byte(3),
-                      .command = cmd,
-                      .length  = sizeof(_Header),
-                      .crc     = _headerCRC()} {}
+            : _Header{.magic = 0x95, .address = std::byte(3), .command = cmd, .length = sizeof(_Header)} {
+            _Header.crc = _headerCRC();
+        }
 
         template <class InputIter>
         InputIter appendArguments(InputIter first, InputIter last) {
-            static_assert(std::is_same_v<typename InputIter::value_type, std::uint16_t> == true);
-            auto v = *first;
+            static_assert(std::is_same_v<typename InputIter::value_type, std::uint16_t> ||
+                          std::is_same_v<typename InputIter::value_type, std::uint8_t>);
             auto i = 0;
-            for (; i < (sizeof(_Data) - 2) && first != last; ++first, i += sizeof(v)) {
-                v = *first;
-                std::cerr << std::hex << v << '\n';
+            for (; i < (sizeof(_Data) - 2) && first != last; ++first, i += sizeof(typename InputIter::value_type)) {
+                const auto v = to7Bit(*first);
                 std::copy_n(reinterpret_cast<const std::uint8_t *>(&v), sizeof(v), &_Data[i]);
             }
-            const auto crc = _packetCRC();
-            std::copy_n(reinterpret_cast<const std::uint8_t *>(&crc), sizeof(crc), &_Data[i]);
-            _Header.length = sizeof(_Header) + i +  sizeof(v);
+            _Header.length = sizeof(_Header) + i + sizeof(std::uint16_t);
+            _Header.crc    = _headerCRC();
+            if (5 < length()) {
+                const auto crc = to7Bit(_packetCRC());
+                std::copy_n(reinterpret_cast<const std::uint8_t *>(&crc), sizeof(crc), &_Data[i]);
+            }
             return first;
+        }
+
+        // TODO:
+        template <class OutputIter>
+        OutputIter extractArguments(OutputIter d_first) {
+            return d_first;
         }
 
         std::ostream &serialize(std::ostream &str) const {
@@ -72,8 +97,8 @@ namespace X97 {
 
     private:
         std::byte _headerCRC() const {
-            auto p  = reinterpret_cast<const char *>(&_Header);
-            int sum = std::accumulate(p, p + sizeof(_Header) - 1, 0);
+            auto p  = reinterpret_cast<const std::uint8_t *>(&_Header);
+            int sum = std::accumulate(p, p + 4, int(0));
             return std::byte(((sum >> 7) + sum) & 0x7f);
         }
 
@@ -110,7 +135,7 @@ namespace X97 {
         }
 
         std::uint16_t _packetCRC() const {
-            const auto crc = crc16(reinterpret_cast<const std::uint8_t *>(this), sizeof(Packet) - 2);
+            const std::uint16_t crc = crc16(reinterpret_cast<const std::uint8_t *>(this), length() - 2);
             return ((crc >> 14) + crc) & 0x3fff;
         }
 
@@ -124,5 +149,12 @@ namespace X97 {
         std::uint8_t _Data[127] = {};
 
         static_assert(sizeof(_Header) == 5, "Wrong header size");
+    };
+
+    class WritePacket : public Packet {
+    public:
+        template <class InputIter>
+        WritePacket(std::uint16_t address, InputIter first, InputIter last) {
+        }
     };
 } // namespace X97
