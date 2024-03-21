@@ -61,17 +61,17 @@ func main() {
 		pack.Print(os.Stdout)
 
 		switch cmd {
-		case GetRegs:
+		case x97.GetRegs:
 			fallthrough
-		case SetRegsRpl:
+		case x97.SetRegsRpl:
 			fallthrough
-		case SetRegsBitsRpl:
+		case x97.SetRegsBitsRpl:
 			fallthrough
-		case ExecRpl:
+		case x97.ExecRpl:
 			fallthrough
-		case Read:
+		case x97.Read:
 			fallthrough
-		case WriteRpl:
+		case x97.WriteRpl:
 			pack = readResponse(port)
 			pack.Print(os.Stdout)
 		}
