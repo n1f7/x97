@@ -60,7 +60,18 @@ func main() {
 		pack := writeRequest(port, cmd)
 		pack.Print(os.Stdout)
 
-		if cmd != 1 {
+		switch cmd {
+		case GetRegs:
+			fallthrough
+		case SetRegsRpl:
+			fallthrough
+		case SetRegsBitsRpl:
+			fallthrough
+		case ExecRpl:
+			fallthrough
+		case Read:
+			fallthrough
+		case WriteRpl:
 			pack = readResponse(port)
 			pack.Print(os.Stdout)
 		}
