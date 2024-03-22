@@ -10,15 +10,9 @@
 
 namespace X97 {
     namespace _Impl {
-        template <std::size_t I>
-        inline constexpr auto shift = 1;
-
-        template <>
-        inline constexpr auto shift<0> = 0;
-
         template <class T, std::size_t... N>
         T to7Bit(const T &x, std::index_sequence<N...>) {
-            return ((((0x7f << (7 * N)) & x) << shift<N>) | ...);
+            return ((((0x7f << (7 * N)) & x) << N) | ...);
         }
     } // namespace _Impl
 
