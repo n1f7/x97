@@ -1,42 +1,66 @@
 #pragma once
 
+#include <array>
+#include <string>
+#include <climits>
+#include <iomanip>
 #include <utility>
 #include <cassert>
 #include <cstdint>
 #include <cstddef>
 #include <numeric>
+#include <iterator>
 #include <iostream>
 #include <type_traits>
+#include <unordered_map>
 
 namespace X97 {
+    class Packet;
+}
+
+std::ostream &operator<<(std::ostream &, const X97::Packet &);
+
+namespace X97 {
+    enum class Command : std::uint8_t {
+        GetRegs = 1,
+        SetRegs,
+        SetRegsRpl,
+        SetRegsBits,
+        SetRegsBitsRpl,
+        Exec,
+        ExecRpl,
+        Read,
+        Write,
+        WriteRpl,
+    };
+
     namespace _Impl {
         template <class T, std::size_t... N>
-        T to7Bit(const T &x, std::index_sequence<N...>) {
+        T septet(const T &x, std::index_sequence<N...>) {
             return ((((0x7f << (7 * N)) & x) << N) | ...);
         }
+
+        inline const std::unordered_map<std::string, Command> cmdLUT{{"GetRegs", Command::GetRegs}};
+
     } // namespace _Impl
 
     template <class T>
-    T to7Bit(const T &x) {
-        return _Impl::to7Bit(x, std::make_index_sequence<sizeof(T)>{});
+    T septet(const T &x) {
+        return _Impl::septet(x, std::make_index_sequence<sizeof(T)>{});
+    }
+
+    inline Command fromString(const std::string &x) {
+        return _Impl::cmdLUT.at(x);
     }
 
     class Packet {
-    public:
-        enum class Command : std::uint8_t {
-            GetRegs = 1,
-            SetRegs,
-            SetRegsRpl,
-            SetRegsBits,
-            SetRegsBitsRpl,
-            Exec,
-            ExecRpl,
-            Read,
-            Write,
-            WriteRpl,
-        };
+        friend std::ostream & ::operator<<(std::ostream &, const Packet &);
 
+    public:
         Packet() = default;
+
+        Packet(Packet &&) noexcept            = default;
+        Packet &operator=(Packet &&) noexcept = default;
 
         explicit Packet(Command cmd)
             : _Header{.magic = 0x95, .address = std::byte(3), .command = cmd, .length = sizeof(_Header)} {
@@ -45,17 +69,19 @@ namespace X97 {
 
         template <class InputIter>
         InputIter appendArguments(InputIter first, InputIter last) {
-            static_assert(std::is_same_v<typename InputIter::value_type, std::uint16_t> ||
-                          std::is_same_v<typename InputIter::value_type, std::uint8_t>);
+            static_assert(std::is_same_v<typename std::iterator_traits<InputIter>::value_type, std::uint16_t> ||
+                          std::is_same_v<typename std::iterator_traits<InputIter>::value_type, std::uint8_t>);
+
             auto i = 0;
-            for (; i < (sizeof(_Data) - 2) && first != last; ++first, i += sizeof(typename InputIter::value_type)) {
-                const auto v = to7Bit(*first);
+            for (; i < (sizeof(_Data) - 2) && first != last;
+                 ++first, i += sizeof(typename std::iterator_traits<InputIter>::value_type)) {
+                const auto v = septet(*first);
                 std::copy_n(reinterpret_cast<const std::uint8_t *>(&v), sizeof(v), &_Data[i]);
             }
             _Header.length = sizeof(_Header) + i + sizeof(std::uint16_t);
             _Header.crc    = _headerCRC();
             if (5 < length()) {
-                const auto crc = to7Bit(_packetCRC());
+                const auto crc = septet(_packetCRC());
                 std::copy_n(reinterpret_cast<const std::uint8_t *>(&crc), sizeof(crc), &_Data[i]);
             }
             return first;
@@ -139,8 +165,8 @@ namespace X97 {
             Command command;
             char length;
             std::byte crc;
-        } _Header               = {};
-        std::uint8_t _Data[127] = {};
+        } _Header                           = {};
+        std::array<std::uint8_t, 127> _Data = {};
 
         static_assert(sizeof(_Header) == 5, "Wrong header size");
     };
@@ -148,7 +174,29 @@ namespace X97 {
     class WritePacket : public Packet {
     public:
         template <class InputIter>
-        WritePacket(std::uint16_t address, InputIter first, InputIter last) {
-        }
+        WritePacket(std::uint16_t address, InputIter first, InputIter last) {}
     };
 } // namespace X97
+
+std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
+    assert(x.isValid());
+    str << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.magic) << ' ' << std::hex << std::setw(2)
+        << std::setfill('0') << int(x._Header.address) << ' ' << std::hex << std::setw(2) << std::setfill('0')
+        << int(x._Header.command) << ' ' << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.length)
+        << ' ' << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.crc);
+
+    for (auto i = 0; i < (x.length() - 5 - 2); ++i) {
+        if (i % 8 == 0) {
+            str << '\n';
+        }
+        str << std::hex << std::setw(2) << std::setfill('0') << int(x._Data[i]) << ' ';
+    }
+
+    if (5 < x.length()) {
+        str << '\n'
+            << std::hex << std::setw(2) << std::setfill('0')
+            << int((std::uint16_t(x._Data[x.length() - 6]) << CHAR_BIT) | std::uint16_t(x._Data[x.length() - 7]));
+    }
+
+    return str;
+}
