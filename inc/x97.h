@@ -73,7 +73,7 @@ namespace X97 {
                           std::is_same_v<typename std::iterator_traits<InputIter>::value_type, std::uint8_t>);
 
             auto i = 0;
-            for (; i < (sizeof(_Data) - 2) && first != last;
+            for (; i < (_Data.size() - 2) && first != last;
                  ++first, i += sizeof(typename std::iterator_traits<InputIter>::value_type)) {
                 const auto v = septet(*first);
                 std::copy_n(reinterpret_cast<const std::uint8_t *>(&v), sizeof(v), &_Data[i]);
@@ -99,7 +99,7 @@ namespace X97 {
 
         std::istream &deserialize(std::istream &str) {
             return str.read(reinterpret_cast<char *>(&_Header), sizeof(_Header)) && isValid()
-                       ? str.read(reinterpret_cast<char *>(_Data), length())
+                       ? str.read(reinterpret_cast<char *>(_Data.data()), length())
                        : str;
         }
 
