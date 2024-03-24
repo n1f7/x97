@@ -4,7 +4,7 @@ project(x97 VERSION 0.0 LANGUAGES CXX)
 
 set(Boost_USE_MULTITHREAD ON)
 
-find_package(Boost REQUIRED COMPONENTS  system thread)
+find_package(Boost REQUIRED COMPONENTS  system)
 
 add_library(x97 INTERFACE)
 target_sources(x97 INTERFACE

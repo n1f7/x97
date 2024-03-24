@@ -36,7 +36,7 @@ inline X97::Packet makePacket(std::stringstream ss) {
             pack.appendArguments(std::cbegin(byteArgs), std::cend(byteArgs));
 
         default:
-            std::cin >> std::hex;
+            ss >> std::hex;
             std::copy(std::istream_iterator<std::uint16_t>{ss}, std::istream_iterator<std::uint16_t>{},
                       std::back_inserter(wordArgs));
             pack.appendArguments(std::begin(wordArgs), std::end(wordArgs));
@@ -45,35 +45,76 @@ inline X97::Packet makePacket(std::stringstream ss) {
     return pack;
 }
 
-class Exchange : public X97::Packet {
+class SerialPort {
 public:
+    SerialPort(const char *port) : _COM{_IoContext, port} {
+        _COM.set_option(boost::asio::serial_port::baud_rate(115200));
+        _COM.set_option(boost::asio::serial_port::parity(boost::asio::serial_port::parity::odd));
+        _COM.set_option(boost::asio::serial_port::stop_bits(boost::asio::serial_port::stop_bits::one));
+    }
+
     inline std::future<const X97::Packet *> request(const X97::Packet &pack) {
-        _Task = std::move(std::packaged_task<const X97::Packet *(X97::Packet *)>{});
-        _Tx(pack);
+        _Task = std::move(std::packaged_task<const X97::Packet *(X97::Packet *)>{[](X97::Packet *p) { return p; }});
+        _DoTx(pack);
         return _Task.get_future();
     }
 
 private:
-    inline void _Tx(const X97::Packet &pack) {
-        boost::asio::async_write(_COM,
-                                 boost::asio::buffer(static_cast<const X97::Packet *>(&pack), sizeof(X97::Packet)),
-                                 std::bind_front(&Exchange::_OnTxComplete, this));
+    inline void _DoTx(const X97::Packet &pack) {
+        boost::asio::async_write(_COM, boost::asio::buffer(&pack, pack.length()),
+                                 std::bind_front(&SerialPort::_OnTxComplete, this, std::cref(pack)));
     }
 
-    inline void _Rcv() {}
-
-    inline void _OnTxComplete(const boost::system::error_code &err, std::size_t sz) {
-        if (!err && sz == length() && isValid()) {
+    inline void _OnTxComplete(const X97::Packet &pack, const boost::system::error_code &err, std::size_t sz) {
+        if (!err && sz == pack.length()) {
+            switch (pack.command()) {
+                case X97::Command::GetRegs:
+                case X97::Command::SetRegsRpl:
+                case X97::Command::SetRegsBitsRpl:
+                case X97::Command::ExecRpl:
+                case X97::Command::Read:
+                case X97::Command::WriteRpl:
+                    _DoRx();
+            }
+        } else {
+            //           std::cerr << "TX failed: " << err.what() << '\n';
             _Task(nullptr);
-            //            _Task(static_cast<const X97::Packet *>(this));
         }
     }
 
+    inline void _DoRx() {
+        boost::asio::async_read(_COM, boost::asio::buffer(&_Response, X97::Packet::HeaderSize),
+                                std::bind_front(&SerialPort::_OnRxHeaderComplete, this));
+    }
+
+    inline void _OnRxHeaderComplete(const boost::system::error_code &err, std::size_t sz) {
+        if (!err && sz == X97::Packet::HeaderSize && _Response.isValid()) {
+            _DoRxBody();
+        } else {
+            _Task(nullptr);
+        }
+    }
+
+    inline void _DoRxBody() {
+        boost::asio::async_read(_COM,
+                                boost::asio::buffer(_Response.data(), _Response.length() - X97::Packet::HeaderSize),
+                                std::bind_front(&SerialPort::_OnRxComplete, this));
+    }
+
+    inline void _OnRxComplete(const boost::system::error_code &err, std::size_t sz) {
+        if (!err && sz == (_Response.length() - X97::Packet::HeaderSize)) {
+            _Task(&_Response);
+        } else {
+            _Task(nullptr);
+        }
+    }
+
+    X97::Packet _Response;
     std::packaged_task<const X97::Packet *(X97::Packet *)> _Task;
-    boost::asio::io_context _Ctx;
-    boost::asio::serial_port _COM{_Ctx};
-    boost::asio::executor_work_guard<boost::asio::io_context::executor_type> _WorkGuard{_Ctx.get_executor()};
-    std::jthread _WorkerThread{[this] { _Ctx.run(); }};
+    boost::asio::io_context _IoContext;
+    boost::asio::serial_port _COM;
+    std::jthread _WorkerThread{[this] { _IoContext.run(); }};
+    boost::asio::executor_work_guard<boost::asio::io_context::executor_type> _WorkGuard{_IoContext.get_executor()};
 };
 
 int main(int argc, char **argv) try {
@@ -81,35 +122,25 @@ int main(int argc, char **argv) try {
 
     if (argc < 2) {
         std::cerr << "x97 <COM_PORT>\n";
+        return 1;
     }
 
-    Exchange proto;
+    SerialPort com{argv[1]};
 
     for (std::string line; std::getline(std::cin, line);) {
         auto pack{makePacket(std::stringstream{std::move(line)})};
 
-        auto response = proto.request(pack);
+        auto response = com.request(pack);
 
         std::cout << "Sent request\n" << pack << '\n';
 
         if (auto responsePtr = response.get(); responsePtr) {
             std::cout << "Received\n" << *responsePtr << '\n';
         }
+
+        std::cout << '\n';
     }
 } catch (const std::exception &err) {
     std::cerr << "Failure: " << err.what() << '\n';
 }
-
-//    std::vector<std::uint16_t> arguments{0x224, 0x96};
-//    X97::Packet proto{X97::Command::SetRegsRpl};
-//    proto.appendArguments(std::begin(arguments), std::end(arguments));
-//
-// #if 0
-//    std::cout << std::setfill('0') << std::hex << std::setw(2);
-//    std::copy_n(reinterpret_cast<const char *>(&proto), proto.length(), std::ostream_iterator<unsigned
-//    short>(std::cout, " ")); std::cout << std::dec << "\nlength:" << proto.length() << '\n';
-// #else
-//    std::copy_n(reinterpret_cast<const char *>(&proto), proto.length(), std::ostream_iterator<char>(std::cout,
-//    ""));
-// #endif
 

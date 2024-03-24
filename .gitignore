@@ -1,3 +1,6 @@
 *.exe
 x97
 build/
+out/
+.vs/
+.vscode/

@@ -18,7 +18,7 @@ const (
 	SetRegsBitsRpl
 	Exec
 	ExecRpl
-	Read
+	Read = iota + 9
 	Write
 	WriteRpl
 )

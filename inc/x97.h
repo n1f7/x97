@@ -29,7 +29,7 @@ namespace X97 {
         SetRegsBitsRpl,
         Exec,
         ExecRpl,
-        Read,
+        Read = 9,
         Write,
         WriteRpl,
     };
@@ -40,7 +40,18 @@ namespace X97 {
             return ((((0x7f << (7 * N)) & x) << N) | ...);
         }
 
-        inline const std::unordered_map<std::string, Command> cmdLUT{{"GetRegs", Command::GetRegs}};
+        inline const std::unordered_map<std::string, Command> cmdLUT{
+            {"GetRegs", Command::GetRegs},
+            {"SetRegs", Command::SetRegs},
+            {"SetRegsRpl", Command::SetRegsRpl},
+            {"SetRegsBits", Command::SetRegsBits},
+            {"SetRegsBitsRpl", Command::SetRegsBitsRpl},
+            {"Exec", Command::Exec},
+            {"ExecRpl", Command::ExecRpl},
+            {"Read", Command::Read},
+            {"Write", Command::Write},
+            {"WriteRpl", Command::WriteRpl},
+        };
 
     } // namespace _Impl
 
@@ -61,6 +72,10 @@ namespace X97 {
 
         Packet(Packet &&) noexcept            = default;
         Packet &operator=(Packet &&) noexcept = default;
+
+        std::uint8_t *data() {
+            return _Data.data();
+        }
 
         explicit Packet(Command cmd)
             : _Header{.magic = 0x95, .address = std::byte(3), .command = cmd, .length = sizeof(_Header)} {
@@ -169,6 +184,9 @@ namespace X97 {
         std::array<std::uint8_t, 127> _Data = {};
 
         static_assert(sizeof(_Header) == 5, "Wrong header size");
+
+    public:
+        static inline constinit std::size_t HeaderSize = sizeof(_Header);
     };
 
     class WritePacket : public Packet {
@@ -179,7 +197,6 @@ namespace X97 {
 } // namespace X97
 
 std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
-    assert(x.isValid());
     str << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.magic) << ' ' << std::hex << std::setw(2)
         << std::setfill('0') << int(x._Header.address) << ' ' << std::hex << std::setw(2) << std::setfill('0')
         << int(x._Header.command) << ' ' << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.length)
