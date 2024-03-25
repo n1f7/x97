@@ -197,6 +197,9 @@ namespace X97 {
 } // namespace X97
 
 std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
+    std::ios save(nullptr);
+    save.copyfmt(str);
+
     str << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.magic) << ' ' << std::hex << std::setw(2)
         << std::setfill('0') << int(x._Header.address) << ' ' << std::hex << std::setw(2) << std::setfill('0')
         << int(x._Header.command) << ' ' << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.length)
@@ -214,6 +217,8 @@ std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
             << std::hex << std::setw(2) << std::setfill('0')
             << int((std::uint16_t(x._Data[x.length() - 6]) << CHAR_BIT) | std::uint16_t(x._Data[x.length() - 7]));
     }
+
+    str.copyfmt(save);
 
     return str;
 }

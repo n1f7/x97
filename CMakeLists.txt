@@ -15,6 +15,6 @@ target_sources(x97 INTERFACE
 )
 target_compile_features(x97 INTERFACE cxx_std_23)
 
-add_executable(gX97 src/main.cpp)
-target_link_libraries(gX97 PRIVATE x97 Boost::system)
+add_executable(X97 src/X97.cpp)
+target_link_libraries(X97 PRIVATE x97 Boost::system)
 
