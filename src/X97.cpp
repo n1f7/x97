@@ -51,7 +51,17 @@ int main(int argc, char **argv) try {
     std::ios::sync_with_stdio(false);
 
     if (argc < 2) {
-        std::cerr << "x97 <COM_PORT>\n";
+        std::vector<std::string> ports;
+        Xprom::SerialPort::enumerate(std::back_inserter(ports));
+
+        std::cout << "Usage:  X97 <COM_PORT>\n\n";
+        if (ports.empty()) {
+            std::cout << "No serial ports available\n";
+        } else {
+            std::cout << "Choose one of " << ports.size() << " serial ports available:\n";
+            std::copy(std::begin(ports), std::end(ports), std::ostream_iterator<std::string>(std::cout, "\n"));
+        }
+
         return 1;
     }
 

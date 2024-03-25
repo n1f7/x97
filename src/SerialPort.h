@@ -1,5 +1,9 @@
 using namespace std::chrono_literals;
 
+#if defined(_WIN32)
+#    include <windows.h>
+#endif
+
 namespace Xprom {
     class SerialPort {
         enum {
@@ -17,6 +21,49 @@ namespace Xprom {
             _Promise = std::promise<X97::Packet *>{};
             _DoTx(pack);
             return _Promise.get_future();
+        }
+
+        template <class OutputIter>
+        static OutputIter enumerate(OutputIter d_first) {
+#if defined(_WIN32)
+            HKEY key;
+            DWORD max_value_len, max_data_size;
+            if ((::RegOpenKeyEx(HKEY_LOCAL_MACHINE, TEXT("HARDWARE\\DEVICEMAP\\SERIALCOMM"), 0, KEY_QUERY_VALUE,
+                                &key) == ERROR_SUCCESS) &&
+                (::RegQueryInfoKey(key, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &max_value_len, &max_data_size, NULL,
+                                   NULL)) == ERROR_SUCCESS) {
+                auto value_len = max_value_len + 1;
+                auto data_size = max_data_size + 1;
+                std::string value((max_value_len + 1) * sizeof(TCHAR), '\0');
+                std::string name((max_data_size + 1) * sizeof(TCHAR), '\0');
+                DWORD type = 0;
+                for (DWORD i = 0; value_len = max_value_len + 1, data_size = max_data_size,
+                           ::RegEnumValue(key, i, value.data(), &value_len, NULL, &type, (LPBYTE)name.data(),
+                                          &data_size) == ERROR_SUCCESS;
+                     ++i) {
+                    if (type == REG_SZ) {
+                        name.resize(data_size / sizeof(TCHAR));
+                        name.shrink_to_fit();
+#    if NOT_USED
+                        value.resize(value_len / sizeof(TCHAR));
+                        value.shrink_to_fit();
+#    endif
+
+                        *d_first++ = name;
+
+#    if NOT_USED
+                        value.resize((max_value_len + 1) * sizeof(TCHAR));
+                        std::fill(value.begin(), value.end(), '\0');
+#    endif
+                        name.resize((max_data_size + 1) * sizeof(TCHAR));
+                        std::fill(name.begin(), name.end(), '\0');
+                    }
+                }
+
+                ::RegCloseKey(key);
+            }
+#endif
+            return d_first;
         }
 
     private:
