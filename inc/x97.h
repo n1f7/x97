@@ -1,5 +1,6 @@
 #pragma once
 
+#include <span>
 #include <array>
 #include <string>
 #include <climits>
@@ -73,12 +74,8 @@ namespace X97 {
         Packet(Packet &&) noexcept            = default;
         Packet &operator=(Packet &&) noexcept = default;
 
-        std::uint8_t *data() {
-            return _Data.data();
-        }
-
         explicit Packet(Command cmd)
-            : _Header{.magic = 0x95, .address = std::byte(3), .command = cmd, .length = sizeof(_Header)} {
+            : _Header{.magic = 0x95, .address = std::byte(3), .command = cmd, .length = HeaderSize} {
             _Header.crc = _headerCRC();
         }
 
@@ -88,32 +85,36 @@ namespace X97 {
                           std::is_same_v<typename std::iterator_traits<InputIter>::value_type, std::uint8_t>);
 
             auto i = 0;
-            for (; i < (_Data.size() - 2) && first != last;
+            for (; i < (_Data.size() - sizeof(std::uint16_t)) && first != last;
                  ++first, i += sizeof(typename std::iterator_traits<InputIter>::value_type)) {
                 const auto v = septet(*first);
                 std::copy_n(reinterpret_cast<const std::uint8_t *>(&v), sizeof(v), &_Data[i]);
             }
-            _Header.length = sizeof(_Header) + i + sizeof(std::uint16_t);
+
+            _Header.length = HeaderSize + i + ((0 < i) ? sizeof(std::uint16_t) : 0);
             _Header.crc    = _headerCRC();
-            if (5 < length()) {
+
+            if (HeaderSize < length()) {
                 const auto crc = septet(_packetCRC());
                 std::copy_n(reinterpret_cast<const std::uint8_t *>(&crc), sizeof(crc), &_Data[i]);
             }
+
             return first;
         }
 
-        // TODO:
+#if TODO
         template <class OutputIter>
         OutputIter extractArguments(OutputIter d_first) {
             return d_first;
         }
+#endif
 
         std::ostream &serialize(std::ostream &str) const {
             return str.write(reinterpret_cast<const char *>(this), length());
         }
 
         std::istream &deserialize(std::istream &str) {
-            return str.read(reinterpret_cast<char *>(&_Header), sizeof(_Header)) && isValid()
+            return str.read(reinterpret_cast<char *>(&_Header), sizeof(_Header)) && isHeaderValid()
                        ? str.read(reinterpret_cast<char *>(_Data.data()), length())
                        : str;
         }
@@ -126,18 +127,20 @@ namespace X97 {
             return _Header.command;
         }
 
+        std::uint16_t packetCRC() const {
+            return (std::uint16_t(data().last(2)[1]) << CHAR_BIT) | std::uint16_t(data().last(2)[0]);
+        }
+
+        bool isHeaderValid() const {
+            return _Header.magic == 0x95 && HeaderSize <= _Header.length && _Header.crc == _headerCRC();
+        }
+
         bool isValid() const {
-            return _Header.magic == 0x95 && sizeof(_Header) <= _Header.length && _Header.crc == _headerCRC();
+            return isHeaderValid() && packetCRC() == _packetCRC();
         }
 
     private:
-        std::byte _headerCRC() const {
-            auto p  = reinterpret_cast<const std::uint8_t *>(&_Header);
-            int sum = std::accumulate(p, p + 4, int(0));
-            return std::byte(((sum >> 7) + sum) & 0x7f);
-        }
-
-        static inline const std::uint16_t _CRC16LUT[] = {
+        static inline constexpr std::uint16_t _CRC16LUT[] = {
             0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241, 0xC601, 0x06C0, 0x0780, 0xC741, 0x0500,
             0xC5C1, 0xC481, 0x0440, 0xCC01, 0x0CC0, 0x0D80, 0xCD41, 0x0F00, 0xCFC1, 0xCE81, 0x0E40, 0x0A00, 0xCAC1,
             0xCB81, 0x0B40, 0xC901, 0x09C0, 0x0880, 0xC841, 0xD801, 0x18C0, 0x1980, 0xD941, 0x1B00, 0xDBC1, 0xDA81,
@@ -169,6 +172,12 @@ namespace X97 {
             return reg_crc;
         }
 
+        std::byte _headerCRC() const {
+            const auto s = header().first(4);
+            int sum      = std::accumulate(std::begin(s), std::end(s), int(0));
+            return std::byte(((sum >> 7) + sum) & 0x7f);
+        }
+
         std::uint16_t _packetCRC() const {
             const std::uint16_t crc = crc16(reinterpret_cast<const std::uint8_t *>(this), length() - 2);
             return ((crc >> 14) + crc) & 0x3fff;
@@ -184,16 +193,40 @@ namespace X97 {
         std::array<std::uint8_t, 127> _Data = {};
 
         static_assert(sizeof(_Header) == 5, "Wrong header size");
+        static_assert(std::is_standard_layout_v<decltype(_Header)> && std::is_trivial_v<decltype(_Header)>);
 
     public:
-        static inline constinit std::size_t HeaderSize = sizeof(_Header);
+        static inline constexpr std::size_t HeaderSize = sizeof(_Header);
+
+        std::span<std::uint8_t, HeaderSize> header() {
+            return std::span<std::uint8_t, HeaderSize>{reinterpret_cast<std::uint8_t *>(&_Header), HeaderSize};
+        }
+
+        std::span<const std::uint8_t, HeaderSize> header() const {
+            return std::span<const std::uint8_t, HeaderSize>{reinterpret_cast<const std::uint8_t *>(&_Header),
+                                                             HeaderSize};
+        }
+
+        std::span<std::uint8_t> data() {
+            return std::span<std::uint8_t>{_Data.data(), length() - HeaderSize};
+        }
+
+        std::span<const std::uint8_t> data() const {
+            return std::span<const std::uint8_t>{_Data.data(), length() - HeaderSize};
+        }
+
+        std::span<const std::uint8_t> packet() const {
+            return std::span<const std::uint8_t>{reinterpret_cast<const uint8_t *>(this), length()};
+        }
     };
 
+#if TODO
     class WritePacket : public Packet {
     public:
         template <class InputIter>
         WritePacket(std::uint16_t address, InputIter first, InputIter last) {}
     };
+#endif
 } // namespace X97
 
 std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
@@ -213,9 +246,7 @@ std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
     }
 
     if (5 < x.length()) {
-        str << '\n'
-            << std::hex << std::setw(2) << std::setfill('0')
-            << int((std::uint16_t(x._Data[x.length() - 6]) << CHAR_BIT) | std::uint16_t(x._Data[x.length() - 7]));
+        str << '\n' << std::hex << std::setw(2) << std::setfill('0') << int(x.packetCRC());
     }
 
     str.copyfmt(save);

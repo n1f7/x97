@@ -68,7 +68,8 @@ namespace Xprom {
 
     private:
         inline void _DoTx(const X97::Packet &pack) {
-            boost::asio::async_write(_COM, boost::asio::buffer(&pack, pack.length()),
+            const auto sp = pack.packet();
+            boost::asio::async_write(_COM, boost::asio::buffer(sp.data(), sp.size_bytes()),
                                      std::bind_front(&SerialPort::_OnTxComplete, this, std::cref(pack)));
         }
 
@@ -89,8 +90,10 @@ namespace Xprom {
         }
 
         inline void _DoRx() {
-            boost::asio::async_read(_COM, boost::asio::buffer(&_Response, X97::Packet::HeaderSize),
+            const auto sp = _Response.header();
+            boost::asio::async_read(_COM, boost::asio::buffer(sp.data(), sp.size_bytes()),
                                     std::bind_front(&SerialPort::_OnRxHeaderComplete, this));
+
             _Timeout.expires_from_now(2s);
             _Timeout.async_wait([this](const boost::system::error_code &err) {
                 if (!err) {
@@ -101,7 +104,7 @@ namespace Xprom {
         }
 
         inline void _OnRxHeaderComplete(const boost::system::error_code &err, std::size_t sz) {
-            if (!err && sz == X97::Packet::HeaderSize && _Response.isValid()) {
+            if (!err && sz == X97::Packet::HeaderSize && _Response.isHeaderValid()) {
                 _DoRxBody();
             } else {
                 _Promise.set_value(nullptr);
@@ -109,8 +112,8 @@ namespace Xprom {
         }
 
         inline void _DoRxBody() {
-            boost::asio::async_read(_COM,
-                                    boost::asio::buffer(_Response.data(), _Response.length() - X97::Packet::HeaderSize),
+            const auto sp = _Response.data();
+            boost::asio::async_read(_COM, boost::asio::buffer(sp.data(), sp.size_bytes()),
                                     std::bind_front(&SerialPort::_OnRxComplete, this));
         }
 

@@ -87,6 +87,9 @@ int main(int argc, char **argv) try {
 
         if (auto responsePtr = response.get(); responsePtr) {
             std::cout << '\n' << responsePtr->length() << " bytes in\n" << *responsePtr << '\n';
+            if (!responsePtr->isValid()) {
+                std::cout << "BAD PACKET CHECKSUM!\n";
+            }
         }
 
         std::cout << "\n\n>";
