@@ -1,3 +1,4 @@
+#include <cctype>
 #include <thread>
 #include <future>
 #include <sstream>
@@ -13,33 +14,40 @@
 #include <functional>
 
 #include <boost/asio.hpp>
-#include <x97.h>
+#include <X97.h>
 
-#include "SerialPort.h"
+#include "MM3.h"
 
-inline X97::Packet makePacket(std::stringstream ss) {
+// Hate this fucking cruft (https://en.cppreference.com/w/cpp/string/byte/tolower)
+static inline char safeToLower(char ch) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+}
+
+static inline X97::Packet makePacket(std::stringstream ss) {
     std::string cmdStr;
     ss >> cmdStr;
+    std::transform(std::begin(cmdStr), std::end(cmdStr), std::begin(cmdStr), ::safeToLower);
     X97::Packet pack(X97::fromString(cmdStr));
 
+    std::uint16_t addr = 0;
+    std::vector<std::uint8_t> byteArgs;
     std::vector<std::uint16_t> wordArgs;
 
-    std::uint16_t addr{};
-    std::vector<std::uint8_t> byteArgs;
-
+    ss >> std::hex;
     switch (pack.command()) {
-        case X97::Command::Read:
         case X97::Command::Write:
-        case X97::Command::WriteRpl:
-            ss >> std::hex >> addr;
-            std::copy(std::istream_iterator<std::uint8_t>{ss}, std::istream_iterator<std::uint8_t>{},
-                      std::back_inserter(byteArgs));
+        case X97::Command::WriteRpl: // 16bit address followed by bytes
+            ss >> addr;
+            // Stupid fucking `generic` C++ treats std::uint8_t same as signed char, resulting in this crap
+            std::transform(std::istream_iterator<std::uint16_t>(ss), std::istream_iterator<std::uint16_t>(),
+                           std::back_inserter(byteArgs),
+                           [](const std::uint16_t &x) { return 0x7f & static_cast<uint8_t>(x); });
             pack.appendArguments(&addr, std::next(&addr));
             pack.appendArguments(std::cbegin(byteArgs), std::cend(byteArgs));
+            break;
 
-        default:
-            ss >> std::hex;
-            std::copy(std::istream_iterator<std::uint16_t>{ss}, std::istream_iterator<std::uint16_t>{},
+        default: // Usually 16bit address value pairs
+            std::copy(std::istream_iterator<std::uint16_t>(ss), std::istream_iterator<std::uint16_t>(),
                       std::back_inserter(wordArgs));
             pack.appendArguments(std::begin(wordArgs), std::end(wordArgs));
     }
@@ -52,7 +60,7 @@ int main(int argc, char **argv) try {
 
     if (argc < 2) {
         std::vector<std::string> ports;
-        Xprom::SerialPort::enumerate(std::back_inserter(ports));
+        Xprom::MM3::enumerate(std::back_inserter(ports));
 
         std::cout << "Usage:  X97 <COM_PORT>\n\n";
         if (ports.empty()) {
@@ -65,7 +73,7 @@ int main(int argc, char **argv) try {
         return 1;
     }
 
-    Xprom::SerialPort com{argv[1]};
+    Xprom::MM3 com{argv[1]};
 
     std::cout << "In order to send command type: <CMD> <Arg1> <Arg2> ... <ArgN> and press enter\nFor example: "
                  "SetRegsRpl 224 96\nTo repeat last sent command type r and press enter\nTo quit type: q and press "
@@ -81,15 +89,27 @@ int main(int argc, char **argv) try {
             previousLine = line;
         }
 
-        auto pack{makePacket(std::stringstream{std::move(line)})};
-        auto response = com.request(pack);
-        std::cout << pack.length() << " bytes out\n" << pack << '\n';
+        try {
+            auto pack{makePacket(std::stringstream{std::move(line)})};
+            auto response = com.request(pack);
+            std::cout << pack.length() << " bytes out\n" << pack << '\n';
 
-        if (auto responsePtr = response.get(); responsePtr) {
-            std::cout << '\n' << responsePtr->length() << " bytes in\n" << *responsePtr << '\n';
-            if (!responsePtr->isValid()) {
-                std::cout << "BAD PACKET CHECKSUM!\n";
+            if (auto responsePtr = response.get(); responsePtr) {
+                std::cout << '\n' << responsePtr->length() << " bytes in\n" << *responsePtr << '\n';
+                if (!responsePtr->isValid()) {
+                    std::cout << "BAD PACKET CHECKSUM!\n";
+                }
             }
+        } catch (const boost::system::system_error &err) {
+            if (err.code() == boost::asio::error::operation_aborted) {
+                std::cout << "\nIO operation timed out\n";
+            } else {
+                std::cout << "\nSerial communication error: " << err.what() << 'n';
+            }
+        } catch (const X97::ProtocolError &err) {
+            std::cout << "\nProtocol error: " << err.what() << '\n';
+        } catch (const std::out_of_range &) {
+            std::cout << "\nUnknown command\n";
         }
 
         std::cout << "\n\n>";

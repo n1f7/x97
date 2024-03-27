@@ -5,18 +5,20 @@ using namespace std::chrono_literals;
 #endif
 
 namespace Xprom {
-    class SerialPort {
+    class MM3 {
         enum {
             BaudRate = 115200,
         };
 
     public:
-        SerialPort(const char *port) : _COM{_IoContext, port} {
+        MM3(const char *port) : _COM{_IoContext, port} {
             _COM.set_option(boost::asio::serial_port::baud_rate(BaudRate));
             _COM.set_option(boost::asio::serial_port::parity(boost::asio::serial_port::parity::odd));
             _COM.set_option(boost::asio::serial_port::stop_bits(boost::asio::serial_port::stop_bits::one));
         }
 
+        // If std::future::get() returns nullptr - no response is expected
+        // Errors are rethrown
         inline std::future<X97::Packet *> request(const X97::Packet &pack) {
             _Promise = std::promise<X97::Packet *>{};
             _DoTx(pack);
@@ -70,11 +72,13 @@ namespace Xprom {
         inline void _DoTx(const X97::Packet &pack) {
             const auto sp = pack.packet();
             boost::asio::async_write(_COM, boost::asio::buffer(sp.data(), sp.size_bytes()),
-                                     std::bind_front(&SerialPort::_OnTxComplete, this, std::cref(pack)));
+                                     std::bind_front(&MM3::_OnTxComplete, this, std::cref(pack)));
         }
 
         inline void _OnTxComplete(const X97::Packet &pack, const boost::system::error_code &err, std::size_t sz) {
-            if (!err && sz == pack.length()) {
+            if (err || sz != pack.length()) {
+                _Promise.set_exception(std::make_exception_ptr(boost::system::system_error(err)));
+            } else {
                 switch (pack.command()) {
                     case X97::Command::GetRegs:
                     case X97::Command::SetRegsRpl:
@@ -83,46 +87,50 @@ namespace Xprom {
                     case X97::Command::Read:
                     case X97::Command::WriteRpl:
                         _DoRx();
-                        return;
+                        break;
+                    default:
+                        _Promise.set_value(nullptr);
                 }
             }
-            _Promise.set_value(nullptr);
         }
 
         inline void _DoRx() {
             const auto sp = _Response.header();
             boost::asio::async_read(_COM, boost::asio::buffer(sp.data(), sp.size_bytes()),
-                                    std::bind_front(&SerialPort::_OnRxHeaderComplete, this));
+                                    std::bind_front(&MM3::_OnRxHeaderComplete, this));
 
             _Timeout.expires_from_now(2s);
             _Timeout.async_wait([this](const boost::system::error_code &err) {
                 if (!err) {
-                    std::cout << "\nOperation timed out\n";
                     _COM.cancel();
                 }
             });
         }
 
         inline void _OnRxHeaderComplete(const boost::system::error_code &err, std::size_t sz) {
-            if (!err && sz == X97::Packet::HeaderSize && _Response.isHeaderValid()) {
-                _DoRxBody();
+            if (err) {
+                _Promise.set_exception(std::make_exception_ptr(boost::system::system_error(err)));
+            } else if (sz != X97::Packet::HeaderSize || !_Response.isHeaderValid()) {
+                _Promise.set_exception(std::make_exception_ptr(X97::BadPacketHeader{}));
             } else {
-                _Promise.set_value(nullptr);
+                _DoRxBody();
             }
         }
 
         inline void _DoRxBody() {
             const auto sp = _Response.data();
             boost::asio::async_read(_COM, boost::asio::buffer(sp.data(), sp.size_bytes()),
-                                    std::bind_front(&SerialPort::_OnRxComplete, this));
+                                    std::bind_front(&MM3::_OnRxComplete, this));
         }
 
         inline void _OnRxComplete(const boost::system::error_code &err, std::size_t sz) {
             _Timeout.cancel();
-            if (!err && sz == (_Response.length() - X97::Packet::HeaderSize)) {
-                _Promise.set_value(&_Response);
+            if (err) {
+                _Promise.set_exception(std::make_exception_ptr(boost::system::system_error(err)));
+            } else if (sz != _Response.data().size_bytes()) {
+                _Promise.set_exception(std::make_exception_ptr(X97::BadPacket{}));
             } else {
-                _Promise.set_value(nullptr);
+                _Promise.set_value(&_Response);
             }
         }
 
@@ -132,7 +140,7 @@ namespace Xprom {
         boost::asio::io_context _IoContext;
         boost::asio::steady_timer _Timeout{_IoContext};
         boost::asio::serial_port _COM;
-        std::jthread _WorkerThread{[this] { _IoContext.run(); }};
+        std::jthread _IoThread{[this] { _IoContext.run(); }};
         boost::asio::executor_work_guard<boost::asio::io_context::executor_type> _WorkGuard{_IoContext.get_executor()};
     };
 

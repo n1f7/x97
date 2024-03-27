@@ -12,6 +12,7 @@
 #include <numeric>
 #include <iterator>
 #include <iostream>
+#include <algorithm>
 #include <type_traits>
 #include <unordered_map>
 
@@ -22,6 +23,20 @@ namespace X97 {
 std::ostream &operator<<(std::ostream &, const X97::Packet &);
 
 namespace X97 {
+    class ProtocolError : public std::runtime_error {
+        using std::runtime_error::runtime_error;
+    };
+
+    class BadPacketHeader : public ProtocolError {
+    public:
+        BadPacketHeader() : ProtocolError{"Bad packet header"} {}
+    };
+
+    class BadPacket : public ProtocolError {
+    public:
+        BadPacket() : ProtocolError{"Bad packet"} {}
+    };
+
     enum class Command : std::uint8_t {
         GetRegs = 1,
         SetRegs,
@@ -42,16 +57,16 @@ namespace X97 {
         }
 
         inline const std::unordered_map<std::string, Command> cmdLUT{
-            {"GetRegs", Command::GetRegs},
-            {"SetRegs", Command::SetRegs},
-            {"SetRegsRpl", Command::SetRegsRpl},
-            {"SetRegsBits", Command::SetRegsBits},
-            {"SetRegsBitsRpl", Command::SetRegsBitsRpl},
-            {"Exec", Command::Exec},
-            {"ExecRpl", Command::ExecRpl},
-            {"Read", Command::Read},
-            {"Write", Command::Write},
-            {"WriteRpl", Command::WriteRpl},
+            {"getregs", Command::GetRegs},
+            {"setregs", Command::SetRegs},
+            {"setregsrpl", Command::SetRegsRpl},
+            {"setregsbits", Command::SetRegsBits},
+            {"setregsbitsrpl", Command::SetRegsBitsRpl},
+            {"exec", Command::Exec},
+            {"execrpl", Command::ExecRpl},
+            {"read", Command::Read},
+            {"write", Command::Write},
+            {"writerpl", Command::WriteRpl},
         };
 
     } // namespace _Impl
@@ -79,12 +94,16 @@ namespace X97 {
             _Header.crc = _headerCRC();
         }
 
+        std::size_t arguments() const {
+            return _Header.length == HeaderSize ? 0 : (length() - HeaderSize - sizeof(std::uint16_t));
+        }
+
         template <class InputIter>
         InputIter appendArguments(InputIter first, InputIter last) {
             static_assert(std::is_same_v<typename std::iterator_traits<InputIter>::value_type, std::uint16_t> ||
                           std::is_same_v<typename std::iterator_traits<InputIter>::value_type, std::uint8_t>);
 
-            auto i = 0;
+            auto i = arguments();
             for (; i < (_Data.size() - sizeof(std::uint16_t)) && first != last;
                  ++first, i += sizeof(typename std::iterator_traits<InputIter>::value_type)) {
                 const auto v = septet(*first);
@@ -136,7 +155,7 @@ namespace X97 {
         }
 
         bool isValid() const {
-            return isHeaderValid() && packetCRC() == _packetCRC();
+            return isHeaderValid() && packetCRC() == septet(_packetCRC());
         }
 
     private:
@@ -179,7 +198,12 @@ namespace X97 {
         }
 
         std::uint16_t _packetCRC() const {
+            const auto sp = packet().first(length() -2);
+#if 1
+            const std::uint16_t crc = crc16(sp.data(), sp.size_bytes());
+#else
             const std::uint16_t crc = crc16(reinterpret_cast<const std::uint8_t *>(this), length() - 2);
+#endif
             return ((crc >> 14) + crc) & 0x3fff;
         }
 
@@ -246,7 +270,7 @@ std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
     }
 
     if (5 < x.length()) {
-        str << '\n' << std::hex << std::setw(2) << std::setfill('0') << int(x.packetCRC());
+        str << '\n' << std::hex << std::setw(4) << std::setfill('0') << int(x.packetCRC());
     }
 
     str.copyfmt(save);
