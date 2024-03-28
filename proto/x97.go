@@ -232,7 +232,7 @@ func (x *Packet) DeSerialize(in io.Reader) []byte {
 		if sz == 0 {
 			break
 		} else if err != nil {
-			fmt.Fprintf(os.Stderr, "Failure to rcv: ", err)
+			fmt.Fprintln(os.Stderr, "Failure to rcv: ", err)
 			break
 		} else if limit < 0 && 4 < received && x.isValid() { // Reading body
 			limit = int(x.Length())

@@ -4,3 +4,5 @@ build/
 out/
 .vs/
 .vscode/
+.DS_store
+*.swp
