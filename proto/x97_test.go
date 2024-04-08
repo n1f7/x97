@@ -21,3 +21,15 @@ func TestPacket(t *testing.T) {
 		t.Errorf("\n%X\n%X\n", their, our)
 	}
 }
+
+func TestPacketPrint(t *testing.T) {
+	their := "95 03 03 0B 27 \n24 04 16 01 \n3C5C\n"
+	pack := PreparePacket(3, []string{"0224", "96"})
+
+	var buf bytes.Buffer
+	pack.Print(&buf)
+
+	if buf.String() != their {
+		t.Errorf("Bad print\n%s...\n%s...", buf.String(), their)
+	}
+}

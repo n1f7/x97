@@ -188,12 +188,11 @@ func (x *Packet) AppendArguments(arguments []string) {
 }
 
 func (x *Packet) CRC() uint16 {
-	return uint16(x.data[x.Length()-2]) | uint16(x.data[x.Length()-1])<<8
+	return binary.LittleEndian.Uint16(x.data[x.Length()-2:])
 }
 
 func (x *Packet) SetCRC(crc uint16) {
-	x.data[x.Length()-2] = uint8(crc >> 0)
-	x.data[x.Length()-1] = uint8(crc >> 8)
+	binary.LittleEndian.PutUint16(x.data[x.Length()-2:], crc)
 }
 
 func (x *Packet) ComputeCRC() {
