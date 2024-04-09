@@ -7,7 +7,7 @@ import (
 
 func TestPacket(t *testing.T) {
 	// $95$03$03$0B$27$24$04$16$01$5c$3c
-	their := []byte{0x95, 0x03, 0x03, 0x0B, 0x27, 0x24, 0x04, 0x16, 0x01, 0x5C, 0x3C}
+	their := []byte{0x95, 0x03, 0x03, 0x0B, 0x27, 0x24, 0x04, 0x16, 0x01, 0x06, 0x6B}
 
 	if len(their) != int(their[3]) {
 		t.Error(`Bad len`)
@@ -23,7 +23,7 @@ func TestPacket(t *testing.T) {
 }
 
 func TestPacketPrint(t *testing.T) {
-	their := "95 03 03 0B 27 \n24 04 16 01 \n3C5C\n"
+	their := "95 03 03 0B 27 \n24 04 16 01 \n6B06\n"
 	pack := PreparePacket(3, []string{"0224", "96"})
 
 	var buf bytes.Buffer

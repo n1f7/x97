@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ios>
 #include <span>
 #include <array>
 #include <string>
@@ -198,12 +199,8 @@ namespace X97 {
         }
 
         std::uint16_t _packetCRC() const {
-            const auto sp = packet().first(length() -2);
-#if 1
+            const auto sp           = data().first(length() - HeaderSize - 2);
             const std::uint16_t crc = crc16(sp.data(), sp.size_bytes());
-#else
-            const std::uint16_t crc = crc16(reinterpret_cast<const std::uint8_t *>(this), length() - 2);
-#endif
             return ((crc >> 14) + crc) & 0x3fff;
         }
 
@@ -257,10 +254,10 @@ std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
     std::ios save(nullptr);
     save.copyfmt(str);
 
-    str << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.magic) << ' ' << std::hex << std::setw(2)
-        << std::setfill('0') << int(x._Header.address) << ' ' << std::hex << std::setw(2) << std::setfill('0')
-        << int(x._Header.command) << ' ' << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.length)
-        << ' ' << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.crc);
+    str << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.magic) << ' ' << std::hex
+        << std::setw(2) << std::setfill('0') << int(x._Header.address) << ' ' << std::hex << std::setw(2)
+        << std::setfill('0') << int(x._Header.command) << ' ' << std::hex << std::setw(2) << std::setfill('0')
+        << int(x._Header.length) << ' ' << std::hex << std::setw(2) << std::setfill('0') << int(x._Header.crc);
 
     for (auto i = 0; i < (x.length() - 5 - 2); ++i) {
         if (i % 8 == 0) {
@@ -270,7 +267,9 @@ std::ostream &operator<<(std::ostream &str, const X97::Packet &x) {
     }
 
     if (5 < x.length()) {
-        str << '\n' << std::hex << std::setw(4) << std::setfill('0') << int(x.packetCRC());
+        str << '\n'
+            << std::hex << std::setw(2) << std::setfill('0') << int(x._Data[x.length() - X97::Packet::HeaderSize - 2])
+            << ' ' << int(x._Data[x.length() - X97::Packet::HeaderSize - 1]);
     }
 
     str.copyfmt(save);

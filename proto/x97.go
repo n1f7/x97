@@ -199,7 +199,7 @@ func (x *Packet) ComputeCRC() {
 	x.SetHeaderCRC(crc_header(x.data[:4]))
 
 	if 5 < x.Length() {
-		x.SetCRC(sharoword(crc_pack(x.data[:x.Length()-2])))
+		x.SetCRC(sharoword(crc_pack(x.data[5 : x.Length()-2])))
 	}
 }
 
