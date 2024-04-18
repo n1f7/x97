@@ -11,7 +11,7 @@ namespace Xprom {
         };
 
     public:
-        MM3(const char *port) : _COM{_IoContext, port} {
+        MM3(const char *port) : _COM{_Thread_Pool.get_executor(), port} {
             _COM.set_option(boost::asio::serial_port::baud_rate(BaudRate));
             _COM.set_option(boost::asio::serial_port::parity(boost::asio::serial_port::parity::odd));
             _COM.set_option(boost::asio::serial_port::stop_bits(boost::asio::serial_port::stop_bits::one));
@@ -137,11 +137,9 @@ namespace Xprom {
         X97::Packet _Response;
         std::promise<X97::Packet *> _Promise;
 
-        boost::asio::io_context _IoContext;
-        boost::asio::steady_timer _Timeout{_IoContext};
+        boost::asio::static_thread_pool _Thread_Pool{1};
+        boost::asio::steady_timer _Timeout{_Thread_Pool.get_executor()};
         boost::asio::serial_port _COM;
-        std::jthread _IoThread{[this] { _IoContext.run(); }};
-        boost::asio::executor_work_guard<boost::asio::io_context::executor_type> _WorkGuard{_IoContext.get_executor()};
     };
 
 } // namespace Xprom
