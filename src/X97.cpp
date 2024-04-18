@@ -74,9 +74,9 @@ int main(int argc, char **argv) try {
 
     Xprom::MM3 com{argv[1]};
 
-    std::cout << "In order to send command type: <CMD> <Arg1> <Arg2> ... <ArgN> and press enter\nFor example: "
-                 "SetRegsRpl 224 96\nTo repeat last sent command type r and press enter\nTo quit type: q and press "
-                 "enter\n\n>";
+    std::cout << "X97 Protocol console v1.0\nIn order to send command type: <CMD> <Arg1> <Arg2> ... <ArgN> and press "
+                 "enter\nFor example: SetRegsRpl 224 96\nTo repeat last sent command type r and press enter\nTo quit "
+                 "type: q and press enter\n\n>";
     std::string previousLine = "SetRegsRpl 224 96";
     for (std::string line; std::getline(std::cin, line);) {
         if (line == "q") {
